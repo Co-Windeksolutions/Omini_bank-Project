@@ -80,3 +80,24 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # ---------------------------------------------------------------------------
+  # After ALL 4 services are built and pushed, trigger the deploy pipeline
+  # in devops-repo. Passes the short SHA so devops-repo knows which tag to deploy.
+  #
+  # Requires: DEVOPS_REPO_TOKEN secret in app-repo settings.
+  # Create a GitHub PAT with 'repo' scope and store it as DEVOPS_REPO_TOKEN.
+  # ---------------------------------------------------------------------------
+  trigger-deploy:
+    name: Trigger Deploy in devops-repo
+    runs-on: ubuntu-latest
+    needs: build-and-push   # only runs after all matrix builds succeed
+
+    steps:
+      - name: Fire repository_dispatch to devops-repo
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.DEVOPS_REPO_TOKEN }}" \
+            https://api.github.com/repos/Co-Windeksolutions/My_devOps_project/dispatches \
+            -d "{\"event_type\": \"app-deploy\", \"client_payload\": {\"image_tag\": \"${GITHUB_SHA::7}\"}}"
