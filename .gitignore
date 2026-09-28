@@ -1,0 +1,32 @@
+# Environment / secrets
+.env
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Build / packaging artifacts
+*.egg-info/
+dist/
+build/
+
+# Test coverage output (not yet generated, kept for when pytest-cov is added)
+.coverage
+coverage.xml
+htmlcov/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
