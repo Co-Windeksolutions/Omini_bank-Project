@@ -30,7 +30,12 @@ async def check_balance(
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account
+    return BalanceResponse(
+        account_id=account.id,
+        user_id=account.user_id,
+        balance=account.balance,
+        kyc_verified=account.kyc_verified,
+    )
 
 
 @router.post("/transfer", response_model=TransferResponse, status_code=status.HTTP_200_OK)
