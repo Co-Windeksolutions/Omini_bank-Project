@@ -76,14 +76,18 @@ async def client():
 
     test_app.dependency_overrides[get_db] = _override_get_db
 
-    async with AsyncClient(
-        transport=ASGITransport(app=test_app), base_url="http://test"
-    ) as ac:
-        yield ac
-
-    # Drop schema after all tests in the module have run
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=test_app), base_url="http://test"
+        ) as ac:
+            yield ac
+    finally:
+        try:
+            # Drop schema after all tests in the module have run
+            async with test_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all)
+        finally:
+            await test_engine.dispose()
 
 
 async def _seed_account(
