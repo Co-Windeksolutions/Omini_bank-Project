@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import aio_pika
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from config import settings
 from consumer import start_consumer
@@ -12,6 +13,24 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _consumer_done_callback(task: asyncio.Task) -> None:
+    """Log any unexpected exception from the consumer background task.
+
+    asyncio silently discards task exceptions unless something awaits the
+    task or a done-callback inspects it.  This callback ensures the failure
+    is visible in structured logs so on-call engineers are alerted.
+    """
+    if task.cancelled():
+        return  # normal shutdown — nothing to log
+    exc = task.exception()
+    if exc is not None:
+        logger.exception(
+            "Consumer task exited unexpectedly: %s", exc, exc_info=exc
+        )
 
 
 @asynccontextmanager
@@ -25,6 +44,8 @@ async def lifespan(app: FastAPI):
     # the HTTP server and the RabbitMQ consumer share the same event loop without
     # blocking each other.
     consumer_task = asyncio.create_task(start_consumer(connection))
+    consumer_task.add_done_callback(_consumer_done_callback)
+    app.state.consumer_task = consumer_task
 
     yield
 
@@ -48,8 +69,19 @@ app = FastAPI(
 
 @app.get("/health", tags=["ops"])
 async def health():
-    # Liveness probe — no DB, so liveness == readiness for this service.
-    # The consumer runs in the background; if it crashes, the asyncio task
-    # exception is logged but the pod stays up. A production implementation
-    # would expose consumer health here and return 503 if the task is dead.
+    """Liveness probe.
+
+    Returns 503 if the consumer background task has exited (crashed) or if
+    the RabbitMQ connection is closed, so Kubernetes restarts the pod rather
+    than routing traffic to a non-consuming instance.
+    """
+    task: asyncio.Task = app.state.consumer_task
+    connection: aio_pika.Connection = app.state.rabbitmq_connection
+
+    if task.done() or connection.is_closed:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": "consumer task is not running"},
+        )
+
     return {"status": "ok"}

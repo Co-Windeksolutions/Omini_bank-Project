@@ -8,21 +8,41 @@ from handlers import handle_transfer_event
 logger = logging.getLogger(__name__)
 
 
-async def start_consumer(connection: aio_pika.Connection) -> None:
+async def process_message(message: aio_pika.IncomingMessage) -> None:
+    """Handle one RabbitMQ message, including the ack/nack lifecycle.
+
+    Owns the message.process() context manager so it can be exercised in unit
+    tests with a specced mock — without a live broker.
+
+    Retry/rejection semantics:
+      requeue=True            — on first failure the message is nacked and
+                                returned to the queue for a single retry.
+      reject_on_redelivered=True — on second delivery (redelivered flag set)
+                                the message is rejected (dead-lettered) instead
+                                of being requeued again, preventing infinite loops.
+
+    Any exception raised by handle_transfer_event is logged here before being
+    re-raised, so message.process().__aexit__ receives the exception and triggers
+    the nack/reject path in aio_pika.
     """
-    Starts the RabbitMQ consumer loop. Runs as a background asyncio task
-    for the lifetime of the application (started in main.py lifespan).
+    async with message.process(requeue=True, reject_on_redelivered=True):
+        try:
+            await handle_transfer_event(message.body)
+        except Exception as exc:
+            logger.error("Failed to handle transfer event: %s", exc)
+            raise
 
-    prefetch_count=10: the broker sends at most 10 unacknowledged messages
-    to this consumer at a time. Without this, the broker dumps the entire
-    queue into the consumer's memory — a single slow message blocks processing
-    of the rest. 10 is a conservative starting value; tune based on observed
-    throughput in Grafana.
 
-    message.process(): an async context manager that automatically acks the
-    message when the block exits cleanly, or nacks (requeues) it if an
-    exception is raised. This ensures no event is silently dropped — a failed
-    message goes back to the queue and will be retried on the next delivery.
+async def start_consumer(connection: aio_pika.Connection) -> None:
+    """Start the RabbitMQ consumer loop.
+
+    Runs as a background asyncio task for the lifetime of the application
+    (started in main.py lifespan).
+
+    prefetch_count=10: the broker delivers at most 10 unacknowledged messages
+    to this consumer at once.  Without QoS the broker dumps the entire queue
+    into memory, where a single slow message blocks the rest.  10 is a
+    conservative starting point; tune based on Grafana throughput metrics.
     """
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=10)
@@ -46,10 +66,4 @@ async def start_consumer(connection: aio_pika.Connection) -> None:
 
     async with queue.iterator() as messages:
         async for message in messages:
-            async with message.process(requeue_on_timeout=False):
-                try:
-                    await handle_transfer_event(message.body)
-                except Exception as exc:
-                    # Log and let message.process() nack/requeue the message
-                    logger.error("Failed to handle transfer event: %s", exc)
-                    raise
+            await process_message(message)
