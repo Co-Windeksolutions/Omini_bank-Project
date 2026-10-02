@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from consumer import start_consumer
+from metrics import PrometheusMiddleware, metrics_response
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +66,14 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Instrument every request with RED metrics (rate, errors, duration).
+app.add_middleware(PrometheusMiddleware)
+
+# Expose the Prometheus text-format scrape endpoint on port 8003.
+@app.get("/metrics", include_in_schema=False, tags=["ops"])
+def get_metrics():
+    return metrics_response()
 
 
 @app.get("/health", tags=["ops"])

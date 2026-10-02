@@ -1,1 +1,3 @@
 pytest==8.2.2
+httpx>=0.27
+anyio[asyncio]>=3.7

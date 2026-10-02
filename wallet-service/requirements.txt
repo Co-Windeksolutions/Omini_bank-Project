@@ -6,3 +6,4 @@ alembic==1.13.1
 aio-pika==9.4.1
 python-dotenv==1.0.1
 pydantic-settings==2.2.1
+prometheus-client==0.20.0

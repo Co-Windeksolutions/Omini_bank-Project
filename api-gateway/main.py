@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from limiter import limiter
+from metrics import PrometheusMiddleware, metrics_response
 from routes import router
 
 
@@ -34,7 +35,18 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Instrument every request with RED metrics (rate, errors, duration).
+# Must be added before include_router so the middleware wraps all routes.
+app.add_middleware(PrometheusMiddleware)
+
 app.include_router(router)
+
+# Expose the Prometheus text-format scrape endpoint on port 8000.
+# Registered as a regular GET route (not app.mount) so Starlette does not
+# issue a 307 redirect from /metrics → /metrics/ on every Prometheus scrape.
+@app.get("/metrics", include_in_schema=False, tags=["ops"])
+def get_metrics():
+    return metrics_response()
 
 
 @app.get("/health", tags=["ops"])

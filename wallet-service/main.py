@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from config import settings
 from database import AsyncSessionLocal, Base, engine
+from metrics import PrometheusMiddleware, metrics_response
 from routes import router
 
 
@@ -35,7 +36,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Instrument every request with RED metrics (rate, errors, duration).
+app.add_middleware(PrometheusMiddleware)
+
 app.include_router(router)
+
+# Expose the Prometheus text-format scrape endpoint on port 8002.
+@app.get("/metrics", include_in_schema=False, tags=["ops"])
+def get_metrics():
+    return metrics_response()
 
 
 @app.get("/health", tags=["ops"])
